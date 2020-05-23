@@ -859,7 +859,7 @@ void __mt76_sta_remove(struct mt76_dev *dev, struct ieee80211_vif *vif,
 	mt76_tx_status_check(dev, wcid, true);
 	for (i = 0; i < ARRAY_SIZE(sta->txq); i++)
 		mt76_txq_remove(dev, sta->txq[i]);
-	mt76_wcid_free(dev->wcid_mask, idx);
+	mt76_wcid_mask_clear(dev->wcid_mask, idx);
 }
 EXPORT_SYMBOL_GPL(__mt76_sta_remove);
 
