@@ -1435,8 +1435,9 @@ static void mt7603_mac_watchdog_reset(struct mt7603_dev *dev)
 	for (i = 0; i < ARRAY_SIZE(dev->mt76.q_tx); i++)
 		mt76_queue_tx_cleanup(dev, i, true);
 
-	for (i = 0; i < ARRAY_SIZE(dev->mt76.q_rx); i++)
+	mt76_for_each_q_rx(&dev->mt76, i) {
 		mt76_queue_rx_reset(dev, i);
+	}
 
 	mt7603_dma_sched_reset(dev);
 

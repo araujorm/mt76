@@ -1395,6 +1395,92 @@ void mt7615_update_channel(struct mt76_dev *mdev)
 
 void mt7615_mac_work(struct work_struct *work)
 {
+	struct mt7615_phy *phy;
+	struct mt76_dev *mdev;
+
+	phy = (struct mt7615_phy *)container_of(work, struct mt7615_phy,
+						mac_work.work);
+	mdev = &phy->dev->mt76;
+
+	mutex_lock(&mdev->mutex);
+
+	mt76_update_survey(mdev);
+	if (++phy->mac_work_count == 5) {
+		phy->mac_work_count = 0;
+
+		mt7615_mac_update_mib_stats(phy);
+		mt7615_mac_scs_check(phy);
+	}
+
+	mutex_unlock(&mdev->mutex);
+
+	mt76_tx_status_check(mdev, NULL, false);
+	ieee80211_queue_delayed_work(phy->mt76->hw, &phy->mac_work,
+				     MT7615_WATCHDOG_TIME);
+}
+
+static bool
+mt7615_wait_reset_state(struct mt7615_dev *dev, u32 state)
+{
+	bool ret;
+
+	ret = wait_event_timeout(dev->reset_wait,
+				 (READ_ONCE(dev->reset_state) & state),
+				 MT7615_RESET_TIMEOUT);
+	WARN(!ret, "Timeout waiting for MCU reset state %x\n", state);
+	return ret;
+}
+
+static void
+mt7615_update_vif_beacon(void *priv, u8 *mac, struct ieee80211_vif *vif)
+{
+	struct ieee80211_hw *hw = priv;
+	struct mt7615_dev *dev = mt7615_hw_dev(hw);
+
+	mt7615_mcu_add_beacon(dev, hw, vif, vif->bss_conf.enable_beacon);
+}
+
+static void
+mt7615_update_beacons(struct mt7615_dev *dev)
+{
+	ieee80211_iterate_active_interfaces(dev->mt76.hw,
+		IEEE80211_IFACE_ITER_RESUME_ALL,
+		mt7615_update_vif_beacon, dev->mt76.hw);
+
+	if (!dev->mt76.phy2)
+		return;
+
+	ieee80211_iterate_active_interfaces(dev->mt76.phy2->hw,
+		IEEE80211_IFACE_ITER_RESUME_ALL,
+		mt7615_update_vif_beacon, dev->mt76.phy2->hw);
+}
+
+void mt7615_dma_reset(struct mt7615_dev *dev)
+{
+	int i;
+
+	mt76_clear(dev, MT_WPDMA_GLO_CFG,
+		   MT_WPDMA_GLO_CFG_RX_DMA_EN | MT_WPDMA_GLO_CFG_TX_DMA_EN |
+		   MT_WPDMA_GLO_CFG_TX_WRITEBACK_DONE);
+	usleep_range(1000, 2000);
+
+	for (i = 0; i < __MT_TXQ_MAX; i++)
+		mt76_queue_tx_cleanup(dev, i, true);
+
+	mt76_for_each_q_rx(&dev->mt76, i) {
+		mt76_queue_rx_reset(dev, i);
+	}
+
+	mt76_set(dev, MT_WPDMA_GLO_CFG,
+		 MT_WPDMA_GLO_CFG_RX_DMA_EN | MT_WPDMA_GLO_CFG_TX_DMA_EN |
+		 MT_WPDMA_GLO_CFG_TX_WRITEBACK_DONE);
+}
+EXPORT_SYMBOL_GPL(mt7615_dma_reset);
+
+void mt7615_mac_reset_work(struct work_struct *work)
+{
+	struct mt7615_phy *phy2;
+	struct mt76_phy *ext_phy;
 	struct mt7615_dev *dev;
 	int i, idx;
 
