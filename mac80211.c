@@ -505,6 +505,10 @@ void mt76_rx(struct mt76_dev *dev, enum mt76_rxq_id q, struct sk_buff *skb)
 		return;
 	}
 
+#ifdef CONFIG_NL80211_TESTMODE
+	if (dev->test.state == MT76_TM_STATE_RX_FRAMES)
+		dev->test.rx_packets[q]++;
+#endif
 	__skb_queue_tail(&dev->rx_skb[q], skb);
 }
 EXPORT_SYMBOL_GPL(mt76_rx);
